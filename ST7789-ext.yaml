@@ -1,0 +1,901 @@
+# GPIO | Използване
+# GPIO4 | backlight_pwm (LED)
+# GPIO5 | SPI CS
+# GPIO13 | buzzer
+# GPIO18 | SPI CLK
+# GPIO19 | SPI DC
+# GPIO21 | SPI RESET
+# GPIO23 | SPI MOSI
+# GPIO32 | GREEN LED
+# GPIO33 | RED LED
+
+esphome:
+  name: st7789
+  friendly_name: ST7789
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+  level: WARN
+  # baud_rate: 0
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "oIR/Axg1bux1CHDUF+MnYgX6pqjzvm3saq/ChxMPjiU="
+
+ota:
+  - platform: esphome
+    password: "58f1ad97054909a7bf2bc8575a3d429c"
+    on_begin:
+      then:
+        - lambda: |-
+            id(update_in_progress) = true;
+            id(update_progress) = 0;
+            ESP_LOGI("OTA", "Update started");
+        - display.page.show: update_progress_page
+    on_progress:
+      then:
+        - lambda: |-
+            id(update_progress) = x; // Записване на прогреса в глобалната променлива
+            ESP_LOGI("OTA", "Update progress: %d%%", x);
+        - display.page.show: update_progress_page
+    on_end:
+      then:
+        - lambda: |-
+            id(update_progress) = 100;
+            ESP_LOGI("OTA", "Update completed");
+        - display.page.show: update_progress_page
+
+wifi:
+  ssid: !secret door_ssid
+  password: !secret door_password
+
+  manual_ip:
+    static_ip: 192.168.1.50
+    gateway: 192.168.1.1
+    subnet: 255.255.255.0
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "St7789"
+    password: "gNwdba4IHpeT"
+
+captive_portal:
+
+#hlk-LD2420
+#tx_pin: GPIO4  # RX на HLK-LD2420
+#rx_pin: GPIO5  # TX на HLK-LD2420
+uart:
+  tx_pin: GPIO17 # TX на HLK-LD2420 /
+  rx_pin: GPIO16 # RX на HLK-LD2420 / OT1 - Serial Tx (to ESP Rx)
+  baud_rate: 115200
+  id: presence
+  parity: NONE
+  stop_bits: 1
+
+wiegand:
+  - id: mykeypad
+    d0: GPIO14
+    d1: GPIO27
+    on_tag:
+      then:
+        - homeassistant.tag_scanned: !lambda "return x;"
+
+# За да свържете ST7789V дисплей към ESP32, е важно да знаете следните пинове:
+# VCC: Захранване (обикновено 3.3V или 5V).
+# GND: Земя.
+# SCL (SCK/CLK): Serial Clock - използва се за синхронизация на данните.
+# SDA (MOSI): Serial Data - използва се за предаване на данни.
+# DC (A0): Data/Command - определя дали изпращаните данни са команди или данни.
+# RESET (RES): Reset - използва се за нулиране на дисплея.
+# CS: Chip Select - използва се за избор на устройството в SPI комуникацията.
+# BLK (LED): Backlight - контролира подсветката на дисплея.
+
+# SPI ST7789 TFT display // SCK pin на дисплее подключен к GPIO18  // MOSI pin на дисплее подключен к GPIO23
+spi:
+  clk_pin: GPIO18
+  mosi_pin: GPIO23
+
+select:
+  - platform: ld2410
+    distance_resolution:
+      name: "distance resolution"
+    baud_rate:
+      name: "baud rate"
+    light_function:
+      name: light function
+    out_pin_level:
+      name: out pin level
+button:
+  - platform: template
+    name: "Buzzer Control"
+    id: buzzer_button
+    on_press:
+      then:
+        - output.set_level:
+            id: buzzer_output
+            level: 80%
+        - delay: 200ms
+        - output.set_level:
+            id: buzzer_output
+            level: 0%
+
+  - platform: ld2410
+    factory_reset:
+      name: "factory reset"
+    restart:
+      name: "restart"
+    query_params:
+      name: query params
+
+  - platform: template
+    name: "buzzer script"
+    on_press:
+      - script.execute: door_unlocked_sound
+  - platform: template
+    name: "buzzer succes"
+    on_press:
+      - script.execute: buzzer_five
+  - platform: template
+    name: "buzzer error"
+    on_press:
+      - script.execute: error_sound
+
+font:
+  - file: "fonts/GoogleSans-Medium.ttf"
+    id: font_16
+    size: 30
+  - file: "fonts/PressStart2P-Regular.ttf"
+    id: font_15
+  - file: "fonts/arial.ttf"
+    id: font1
+    size: 20
+  - file: "fonts/DejaVuSans.ttf"
+    id: font_cyrillic
+    size: 15
+    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЬЮЯабвгдежзийклмнопрстуфхцчшщъьюяёЁ"
+  - file: "fonts/DejaVuSans-Bold.ttf"
+    id: font_cyrillic_bold
+    size: 35
+    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЬЮЯабвгдежзийклмнопрстуфхцчшщъьюяёЁ"
+  - file: "fonts/DejaVuSans-Bold.ttf"
+    id: font_bold
+    size: 45
+  - file: "fonts/DejaVuSans-Bold.ttf"
+    id: font_cyrillic_bold25
+    size: 20
+    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЬЮЯабвгдежзийклмнопрстуфхцчшщъьюяёЁ\u00B0"
+
+output:
+  - platform: ledc
+    pin: GPIO4
+    id: backlight_pwm
+
+  - platform: ledc
+    pin: GPIO33 #RED
+    id: red_led
+
+  - platform: ledc
+    pin: GPIO32 #GREEN
+    id: green_led
+
+  - platform: ledc
+    pin: GPIO13
+    id: buzzer_output
+    frequency: 2730Hz # Using a frequency that's good for audible beeps
+    inverted: true
+
+script:
+  - id: buzzer_five # Use the same buzzer name you have given above.
+    then:
+      - repeat:
+          count: 5
+          then:
+            - output.set_level:
+                id: buzzer_output
+                level: "50%"
+            - delay: 500ms
+            - output.turn_off: buzzer_output
+            - delay: 1000ms
+
+  - id: door_unlocked_sound
+    then:
+      - output.set_level:
+          id: buzzer_output
+          level: "50%"
+      - delay: 200ms
+      - output.turn_off: buzzer_output
+      - delay: 100ms
+      - output.set_level:
+          id: buzzer_output
+          level: "50%"
+      - delay: 200ms
+      - output.turn_off: buzzer_output
+
+  - id: error_sound
+    then:
+      - output.set_level:
+          id: buzzer_output
+          level: "50%"
+      - delay: 100ms
+      - output.turn_off: buzzer_output
+      - delay: 100ms
+      - output.set_level:
+          id: buzzer_output
+          level: "50%"
+      - delay: 100ms
+      - output.turn_off: buzzer_output
+      - delay: 100ms
+      - output.set_level:
+          id: buzzer_output
+          level: "50%"
+      - delay: 100ms
+      - output.turn_off: buzzer_output
+
+# number:
+#   - platform: template
+#     name: "Set LVGL Page"
+#     id: set_lvgl_page
+#     min_value: 0
+#     max_value: 2
+#     step: 1
+#     set_action:
+#       then:
+#         - lambda: |-
+#             if (x == 0) id(displayST).show_page("home_screen");
+#             else if (x == 1) id(displayST).show_page("page1");
+#             else if (x == 2) id(displayST).show_page("door_unlocked_page");
+
+# power_supply:
+#   - id: buzzer_power
+#     keep_on_time: 0s
+#     enable_time: 0s
+#     pin:
+#       number: GPIO12
+#       inverted: true
+
+rtttl:
+  - output: buzzer_output
+    id: buzzer_rttl
+    gain: 20%
+
+switch:
+  - platform: output
+    name: "Buzzer Switch"
+    output: buzzer_output
+    id: buzzer_switch
+
+  - platform: ld2410
+    engineering_mode:
+      name: "engineering mode"
+    bluetooth:
+      name: "control bluetooth"
+
+ld2410:
+  uart_id: presence
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    name: "Display Backlight"
+    id: back_light
+    restore_mode: ALWAYS_ON
+
+  - platform: monochromatic
+    output: red_led
+    name: "RED LED Light"
+    id: red_led_light
+    effects:
+      - pulse:
+          name: "Fast Pulse"
+          transition_length: 0.5s
+          update_interval: 0.5s
+          min_brightness: 0%
+          max_brightness: 100%
+      - pulse:
+          name: "Slow Pulse"
+          transition_length: 500ms
+          update_interval: 2s
+      - pulse:
+          name: "Asymmetrical Pulse"
+          transition_length:
+            on_length: 1s
+            off_length: 500ms
+          update_interval: 1.5s
+
+  - platform: monochromatic
+    output: green_led
+    name: "Green LED Light"
+    id: green_led_light
+    effects:
+      - pulse:
+          name: "Fast Pulse"
+          transition_length: 0.5s
+          update_interval: 0.5s
+          min_brightness: 0%
+          max_brightness: 100%
+      - pulse:
+          name: "Slow Pulse"
+          transition_length: 500ms
+          update_interval: 2s
+      - pulse:
+          name: "Asymmetrical Pulse"
+          transition_length:
+            on_length: 1s
+            off_length: 500ms
+          update_interval: 1.5s
+time:
+  - platform: homeassistant
+    id: ha_time
+
+text_sensor:
+  - platform: homeassistant
+    entity_id: sensor.vkhodna_vrata_door
+    id: buildingdoor
+    name: "Front Door Open"
+
+  - platform: homeassistant
+    id: weathertxt
+    entity_id: weather.u_doma
+
+sensor:
+  - platform: homeassistant
+    id: weather
+    entity_id: weather.u_doma
+    attribute: temperature
+    unit_of_measurement: "°C"
+    device_class: "temperature"
+    state_class: "measurement"
+  - platform: homeassistant
+    id: weatherwind
+    entity_id: weather.u_doma #
+    attribute: wind_speed
+    unit_of_measurement: "m/s"
+    device_class: "wind_speed"
+    state_class: "measurement"
+
+  - platform: wifi_signal
+    name: "WiFi Signal Sensor"
+    update_interval: 60s
+
+  - platform: uptime
+    name: "Uptime Sensor"
+    id: uptime_sensor
+
+  - platform: template
+    name: "Uptime in Seconds"
+    lambda: |-
+      return id(uptime_sensor).state;
+    unit_of_measurement: "s"
+    update_interval: 60s
+
+  - platform: template
+    name: "Uptime in Minutes"
+    lambda: |-
+      return id(uptime_sensor).state / 60;
+    unit_of_measurement: "min"
+    update_interval: 60s
+
+  - platform: template
+    name: "Free Heap"
+    id: free_heap
+    lambda: |-
+      return ESP.getFreeHeap();
+    update_interval: 60s
+    unit_of_measurement: "B"
+    icon: "mdi:memory"
+
+  - platform: template
+    name: "Min Free Heap"
+    id: min_free_heap
+    lambda: |-
+      return ESP.getMinFreeHeap();
+    update_interval: 60s
+    unit_of_measurement: "B"
+    icon: "mdi:memory"
+
+  - platform: template
+    name: "Max Alloc Heap"
+    id: max_alloc_heap
+    lambda: |-
+      return ESP.getMaxAllocHeap();
+    update_interval: 60s
+    unit_of_measurement: "B"
+    icon: "mdi:memory"
+
+binary_sensor:
+  - platform: homeassistant
+    id: vrata_sboard
+    device_class: door
+    entity_id: binary_sensor.d1mini_sboard_door_contact_2
+    name: "Sboard Door Open"
+    internal: False
+    on_press:
+      then:
+        - lambda: |-
+            id(displayST).show_page(id(page1));
+            id(current_page_index) = 0; // Рестарт на ротацията
+        - light.turn_on:
+            id: red_led_light
+            effect: "Fast Pulse"
+        # - output.set_level:
+        #     id: buzzer_output
+        #     level: "20%"
+    on_release:
+      then:
+        - lambda: |-
+            id(displayST).show_page(id(building_info_page));
+            id(current_page_index) = 0; // Започни отначало ротацията
+        - light.turn_off: red_led_light
+        # - output.turn_off: buzzer_output
+
+  - platform: homeassistant
+    id: door_contact
+    entity_id: binary_sensor.d1mini_sboard_door_contact_2
+    name: "Door Contact"
+    internal: False
+
+#GPIO26 за D0 и GPIO27 за D1
+# wiegand:
+#   d0: 33
+#   d1: 27
+#   # on_tag:
+#   #   then:
+#   #     - homeassistant.event:
+#   #         event: esphome.wiegand_card
+#   #         data:
+#   #           card_id: !lambda 'return x;'
+#   on_key:
+#       - lambda: ESP_LOGI("KEY", "received key %d", x);
+#   on_tag:
+#       - lambda: ESP_LOGI("TAG", "received tag %s", x.c_str());
+#   on_raw:
+#       - lambda: ESP_LOGI("RAW", "received raw %d bits, value %llx", bits, value);
+
+image:
+  # - file: "imgs/111.png"
+  #   id: close_door
+  #   type: RGB
+  #   resize: 170x320
+
+  # - file: "imgs/alert.png"
+  #   id: image_on
+  #   type: RGB
+
+  # - file: "imgs/alert.png"
+  #   id: image_off
+  #   type: RGB
+
+  # - file: "imgs/alert.png"
+  #   id: image_alert
+  #   type: RGB
+
+  # - file: "imgs/cloud.png"
+  #   id: image_cloud
+  #   type: RGB
+
+  # - file: "imgs/cloud-small.png"
+  #   id: image_cloud_small
+  #   type: RGB
+
+  # - file: "imgs/cloud-partly.png"
+  #   id: image_cloud_partly
+  #   type: RGB
+
+  # - file: "imgs/cloud-partly-small.png"
+  #   id: image_cloud_partly_small
+  #   type: RGB
+
+  # - file: "imgs/dot-green.png"
+  #   id: image_dot_green
+  #   resize: 14x14
+  #   type: RGB
+
+  # - file: "imgs/dot-orange.png"
+  #   id: image_dot_orange
+  #   resize: 14x14
+  #   type: RGB
+
+  #weather status icon
+  - file: mdi:alert-outline
+    id: alert
+    type: grayscale
+    transparency: alpha_channel
+    resize: 80x80
+  - file: mdi:weather-sunny
+    id: sunny
+    type: grayscale
+    transparency: alpha_channel
+    resize: 80x80
+  - file: mdi:weather-partly-cloudy
+    id: partly_cloudy
+    type: grayscale
+    transparency: alpha_channel
+    resize: 80x80
+  - file: mdi:weather-cloudy
+    id: cloudy
+    type: grayscale
+    transparency: alpha_channel
+    resize: 80x80
+  - file: mdi:weather-pouring
+    id: raining
+    type: grayscale
+    transparency: alpha_channel
+    resize: 80x80
+  - file: mdi:weather-lightning
+    id: thunder
+    type: grayscale
+    transparency: alpha_channel
+    resize: 80x80
+  - file: mdi:alert-circle-outline
+    type: grayscale
+    id: image_alert
+    transparency: alpha_channel
+    resize: 80x80
+  - file: mdi:weather-snowy
+    id: snow
+    type: grayscale
+    transparency: alpha_channel
+    resize: 80x80
+  - file: mdi:weather-fog
+    id: fog
+    type: grayscale
+    transparency: alpha_channel
+    resize: 80x80
+  - file: mdi:weather-night
+    id: clear_night
+    type: grayscale
+    transparency: alpha_channel
+    resize: 80x80
+  - file: mdi:lan-connect
+    id: connected
+    type: grayscale
+    transparency: alpha_channel
+    resize: 20x20
+  - file: mdi:lan-disconnect
+    id: disconnected
+    type: grayscale
+    transparency: alpha_channel
+    resize: 20x20
+  - file: mdi:motion-sensor
+    id: motion
+    type: grayscale
+    transparency: alpha_channel
+    resize: 20x20
+  - file: mdi:door-open
+    id: dooropen
+    type: grayscale
+    transparency: alpha_channel
+    resize: 20x20
+  - file: mdi:door-closed-lock
+    id: doorclosedlock
+    type: grayscale
+    transparency: alpha_channel
+    resize: 20x20
+  - file: mdi:weather-cloudy-alert
+    id: weathercloudyalert
+    type: grayscale
+    transparency: alpha_channel
+    resize: 80x80
+  - file: mdi:water-percent
+    id: humidity
+    type: grayscale
+    transparency: alpha_channel
+    resize: 30x30
+  - file: mdi:thermometer
+    id: temperature
+    type: grayscale
+    transparency: alpha_channel
+    resize: 30x30
+  - file: mdi:lock-open-variant
+    id: unlock
+    type: grayscale
+    transparency: alpha_channel
+    resize: 80x80
+  - file: mdi:download
+    id: update_icon
+    type: grayscale
+    transparency: alpha_channel
+    resize: 60x60
+  - file: mdi:weather-windy
+    id: windy
+    type: grayscale
+    transparency: alpha_channel
+    resize: 80x80
+
+display:
+  - platform: ili9xxx
+    model: ST7789V
+    dimensions:
+      height: 170
+      width: 320
+      offset_height: 35
+      offset_width: 0
+    transform:
+      swap_xy: true
+      mirror_x: false
+      mirror_y: true
+    color_order: bgr
+    invert_colors: true
+    data_rate: 80MHz
+    cs_pin: GPIO5
+    dc_pin: GPIO19
+    reset_pin: GPIO21
+    id: displayST
+    pages:
+      - id: page0
+        lambda: |-
+          // Горна лента със статус (само с 5 аргумента)
+          it.rectangle(0, 0, it.get_width(), 30, Color(5, 10, 20));
+
+          // Време (правилен формат на strftime)
+          it.strftime(160, 8, id(font_16), Color(240, 248, 255), TextAlign::CENTER, "%H:%M", id(ha_time).now());
+
+          // Дата (правилен формат на strftime)
+          it.strftime(160, 150, id(font1), Color(64, 156, 255), TextAlign::CENTER, "%d-%m-%Y", id(ha_time).now());
+
+          // Рамка за метеорологичната иконка (само с 5 аргумента)
+          it.rectangle(80, 40, 100, 100, Color(5, 10, 20));
+
+          // Избор на икона според състоянието на времето
+          if (id(weathertxt).state == "cloudy") {
+            it.image(100, 50, id(cloudy));
+          } else if (id(weathertxt).state == "rainy") {
+            it.image(100, 50, id(image_alert));
+          } else if (id(weathertxt).state == "snowy") {
+            it.image(100, 50, id(snow));
+          } else if (id(weathertxt).state == "partlycloudy") {
+            it.image(100, 50, id(partly_cloudy));
+          } else if (id(weathertxt).state == "clear-night") {
+            it.image(100, 50, id(clear_night), Color(120, 140, 255));
+          } else if (id(weathertxt).state == "sunny") {
+            it.image(100, 50, id(sunny), Color(255, 220, 0));
+          } else {
+            it.image(100, 50, id(weathercloudyalert));
+          }
+
+          // Температура - правилен формат без rounded_rectangle
+          it.rectangle(190, 45, 120, 40, Color(5, 10, 20));
+          it.image(200, 50, id(temperature), Color(255, 180, 0));
+          it.printf(238, 52, id(font_cyrillic_bold25), Color(255, 180, 0), "%.1f°C", id(weather).state);
+
+          // Вятър - правилен формат без rounded_rectangle
+          it.rectangle(190, 95, 120, 40, Color(5, 10, 20));
+          it.image(200, 100, id(humidity), Color(100, 200, 255));
+          it.printf(238, 102, id(font_cyrillic_bold25), Color(100, 200, 255), "%.1f m/s", id(weatherwind).state);
+
+          // Wi-Fi статус
+          if (id(wifi_connection) == true) {
+            it.image(10, 5, id(connected), Color(0, 220, 0));
+          } else {
+            it.image(10, 5, id(disconnected), Color(255, 50, 50));
+          }
+
+      - id: page1
+        lambda: |-
+          // Показване на предупредителен текст
+          it.printf(160, 20, id(font_cyrillic_bold), TextAlign::CENTER, "МОЛЯ");
+          it.printf(160, 50, id(font_cyrillic_bold), TextAlign::CENTER, "ЗАТВОРЕТЕ");
+          it.printf(160, 100, id(font_cyrillic_bold), TextAlign::CENTER, "ВРАТАТА");
+
+          // Добавяне на икона за внимание
+          // it.image(20, 60, id(image_alert), Color(255, 0, 0));
+      - id: door_unlocked_page
+        lambda: |-
+          it.print(120, 50, id(font_cyrillic_bold), Color(255, 0, 0), "ВРАТАТА Е");
+          it.print(120, 90, id(font_cyrillic_bold), Color(255, 0, 0), "ОТКЛЮЧЕНА");
+          it.image(120, 150, id(image_alert), Color(255, 0, 0));
+
+      # Страница за температура
+      - id: weather_temperature_page
+        lambda: |-
+
+          // Заглавие
+          it.printf(160, 20, id(font_cyrillic_bold25), Color(255, 255, 255), TextAlign::CENTER, "ТЕМПЕРАТУРА");
+
+          // Голяма икона за температура в центъра
+          it.image(120, 60, id(temperature), Color(255, 180, 0));
+
+          // Големи цифри за температурата
+          it.printf(160, 120, id(font_bold), Color(255, 180, 0), TextAlign::CENTER, "%.1f°C", id(weather).state);
+
+          // Дата и час в долната част
+          it.strftime(160, 150, id(font_cyrillic), Color(150, 150, 150), TextAlign::CENTER, "%H:%M | %d-%m", id(ha_time).now());
+
+          // Wi-Fi статус
+          if (id(wifi_connection) == true) {
+            it.image(10, 5, id(connected), Color(0, 220, 0));
+          } else {
+            it.image(10, 5, id(disconnected), Color(255, 50, 50));
+          }
+
+      # Страница за вятър
+      - id: weather_wind_page
+        lambda: |-
+
+          // Заглавие
+          it.printf(160, 20, id(font_cyrillic_bold25), Color(255, 255, 255), TextAlign::CENTER, "ВЯТЪР");
+
+          // Голяма икона за вятър в центъра
+          it.image(120, 60, id(windy), Color(100, 200, 255));
+
+          // Големи цифри за вятъра
+          it.printf(160, 120, id(font_bold), Color(100, 200, 255), TextAlign::CENTER, "%.1f", id(weatherwind).state);
+          it.printf(160, 150, id(font_cyrillic_bold25), Color(100, 200, 255), TextAlign::CENTER, "m/s");
+
+          // Дата и час в долната част
+          it.strftime(160, 160, id(font_cyrillic), Color(150, 150, 150), TextAlign::CENTER, "%H:%M | %d-%m", id(ha_time).now());
+
+          // Wi-Fi статус
+          if (id(wifi_connection) == true) {
+            it.image(10, 5, id(connected), Color(0, 220, 0));
+          } else {
+            it.image(10, 5, id(disconnected), Color(255, 50, 50));
+          }
+
+      # Страница за общо време
+      - id: weather_general_page
+        lambda: |-
+
+          // Заглавие
+          it.printf(160, 15, id(font_cyrillic_bold25), Color(255, 255, 255), TextAlign::CENTER, "ВРЕМЕ");
+
+          // Голяма икона за времето в центъра
+          if (id(weathertxt).state == "cloudy") {
+            it.image(80, 50, id(cloudy), Color(200, 200, 200));
+          } else if (id(weathertxt).state == "rainy") {
+            it.image(80, 50, id(raining), Color(100, 150, 255));
+          } else if (id(weathertxt).state == "snowy") {
+            it.image(80, 50, id(snow), Color(255, 255, 255));
+          } else if (id(weathertxt).state == "partlycloudy") {
+            it.image(80, 50, id(partly_cloudy), Color(200, 200, 200));
+          } else if (id(weathertxt).state == "clear-night") {
+            it.image(80, 50, id(clear_night), Color(120, 140, 255));
+          } else if (id(weathertxt).state == "sunny") {
+            it.image(80, 50, id(sunny), Color(255, 220, 0));
+          } else {
+            it.image(80, 50, id(weathercloudyalert), Color(255, 100, 0));
+          }
+
+          // Температура и вятър на една страница
+          it.printf(240, 70, id(font_cyrillic_bold25), Color(255, 180, 0), "%.1f°C", id(weather).state);
+          it.printf(240, 100, id(font_cyrillic_bold25), Color(100, 200, 255), "%.1f m/s", id(weatherwind).state);
+
+          // Дата и час в долната част
+          it.strftime(160, 150, id(font_cyrillic), Color(150, 150, 150), TextAlign::CENTER, "%H:%M | %d-%m-%Y", id(ha_time).now());
+
+          // Wi-Fi статус
+          if (id(wifi_connection) == true) {
+            it.image(10, 5, id(connected), Color(0, 220, 0));
+          } else {
+            it.image(10, 5, id(disconnected), Color(255, 50, 50));
+          }
+
+      # Страница с адрес на сградата
+      - id: building_info_page
+        lambda: |-
+          // Големи букви за адреса в центъра
+          it.printf(160, 60, id(font_cyrillic_bold), Color(255, 255, 255), TextAlign::CENTER, "БЛОК 108");
+          it.printf(160, 110, id(font_cyrillic_bold), Color(255, 255, 255), TextAlign::CENTER, "ВХ Б");
+
+          // Дата и час в долната част
+          it.strftime(160, 150, id(font_cyrillic), Color(150, 150, 150), TextAlign::CENTER, "%H:%M | %d-%m-%Y", id(ha_time).now());
+
+          // Wi-Fi статус В горен ляв ъгъл
+          if (id(wifi_connection) == true) {
+            it.image(10, 5, id(connected), Color(0, 220, 0));
+          } else {
+            it.image(10, 5, id(disconnected), Color(255, 50, 50));
+          }
+      - id: update_progress_page
+        lambda: |-
+
+          // Заглавие
+          it.printf(160, 15, id(font_cyrillic_bold25), Color(255, 255, 255), TextAlign::CENTER, "АКТУАЛИЗАЦИЯ");
+
+          // Икона за актуализация
+          it.image(130, 40, id(update_icon), Color(100, 150, 255));
+
+          // Прогрес бар рамка
+          it.rectangle(50, 85, 220, 25, Color(100, 100, 100));
+          // Прогрес бар запълване
+          it.rectangle(52, 87, ((220-4) * id(update_progress) / 100), 21, Color(0, 200, 0));
+
+          // Процент на прогреса
+          it.printf(160, 120, id(font_cyrillic_bold25), Color(255, 255, 255), TextAlign::CENTER, "%d%%", id(update_progress));
+
+          // Допълнителен текст
+          it.printf(160, 145, id(font_cyrillic), Color(150, 150, 150), TextAlign::CENTER, "Моля изчакайте...");
+
+          // Wi-Fi статус В горен ляв ъгъл
+          if (id(wifi_connection) == true) {
+            it.image(10, 5, id(connected), Color(0, 220, 0));
+          } else {
+            it.image(10, 5, id(disconnected), Color(255, 50, 50));
+          }
+
+globals: ##to set default reboot behavior
+  - id: wifi_connection
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+  # Глобална променлива за проследяване на текущата страница
+  - id: current_page_index
+    type: int
+    restore_value: no
+    initial_value: "0"
+  # Глобална променлива за проследяване на прогреса на актуализацията
+  - id: update_progress
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+  # Флаг за активна актуализация
+  - id: update_in_progress
+    type: bool
+    restore_value: no
+    initial_value: "false"
+
+interval:
+  - interval: 10s
+    then:
+      - if:
+          condition:
+            wifi.connected:
+          then:
+            - lambda: |-
+                id(wifi_connection) = true;
+          else:
+            - lambda: |-
+                id(wifi_connection) = false;
+      - lambda: |-
+          // Проверка дали вратата е отворена
+          if (id(buildingdoor).state == "true") {
+            // Вратата е отворена, спри ротацията
+            id(current_page_index) = 0;
+          } else {
+            // Вратата е затворена, продължи ротацията
+            if (id(current_page_index) == 0) {
+              id(current_page_index) = 1;
+            }
+          }
+
+  # Автоматично ротиране на страниците за времето
+  - interval: 8s
+    then:
+      - lambda: |-
+          // Спри ротацията ако има актуализация в ход
+          if (id(update_in_progress) == true) {
+            id(displayST).show_page(id(update_progress_page));
+            return;
+          }
+
+          // Ротиране само ако вратата е затворена (не е на page1)
+          if (id(vrata_sboard).state == false) {
+            int next_page = (id(current_page_index) + 1) % 5; // 5 страници общо
+            id(current_page_index) = next_page;
+            
+            switch(next_page) {
+              case 0:
+                id(displayST).show_page(id(page0));
+                break;
+              case 1:
+                id(displayST).show_page(id(weather_temperature_page));
+                break;
+              case 2:
+                id(displayST).show_page(id(weather_wind_page));
+                break;
+              case 3:
+                id(displayST).show_page(id(weather_general_page));
+                break;
+              case 4:
+                id(displayST).show_page(id(building_info_page));
+                break;
+            }
+          }
