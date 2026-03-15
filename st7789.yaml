@@ -9,6 +9,10 @@
 # GPIO32 | GREEN LED
 # GPIO33 | RED LED
 
+
+# Промени броя на страниците в ротацията (в секцията interval -> 8s):
+# Намери реда: int next_page = (id(current_page_index) + 1) % 6;
+# Промени го на:  int next_page = (id(current_page_index) + 1) % 7;
 esphome:
   name: st7789
   friendly_name: ST7789
@@ -18,10 +22,16 @@ esp32:
   framework:
     type: arduino
 
+psram:
+  mode: quad 
+  speed: 80MHz
+  
 # Enable logging
 logger:
   level: WARN
-  # baud_rate: 0
+  logs:
+    component: ERROR
+  baud_rate: 0
 
 # Enable Home Assistant API
 api:
@@ -31,25 +41,7 @@ api:
 ota:
   - platform: esphome
     password: "58f1ad97054909a7bf2bc8575a3d429c"
-    on_begin:
-      then:
-        - lambda: |-
-            id(update_in_progress) = true;
-            id(update_progress) = 0;
-            ESP_LOGI("OTA", "Update started");
-        - display.page.show: update_progress_page
-    on_progress:
-      then:
-        - lambda: |-
-            id(update_progress) = x; // Записване на прогреса в глобалната променлива
-            ESP_LOGI("OTA", "Update progress: %d%%", x);
-        - display.page.show: update_progress_page
-    on_end:
-      then:
-        - lambda: |-
-            id(update_progress) = 100;
-            ESP_LOGI("OTA", "Update completed");
-        - display.page.show: update_progress_page
+
 
 wifi:
   ssid: !secret door_ssid
@@ -64,19 +56,6 @@ wifi:
   ap:
     ssid: "St7789"
     password: "gNwdba4IHpeT"
-
-captive_portal:
-
-#hlk-LD2420
-#tx_pin: GPIO4  # RX на HLK-LD2420
-#rx_pin: GPIO5  # TX на HLK-LD2420
-uart:
-  tx_pin: GPIO17 # TX на HLK-LD2420 /
-  rx_pin: GPIO16 # RX на HLK-LD2420 / OT1 - Serial Tx (to ESP Rx)
-  baud_rate: 115200
-  id: presence
-  parity: NONE
-  stop_bits: 1
 
 wiegand:
   - id: mykeypad
@@ -101,16 +80,6 @@ spi:
   clk_pin: GPIO18
   mosi_pin: GPIO23
 
-select:
-  - platform: ld2410
-    distance_resolution:
-      name: "distance resolution"
-    baud_rate:
-      name: "baud rate"
-    light_function:
-      name: light function
-    out_pin_level:
-      name: out pin level
 button:
   - platform: template
     name: "Buzzer Control"
@@ -125,13 +94,6 @@ button:
             id: buzzer_output
             level: 0%
 
-  - platform: ld2410
-    factory_reset:
-      name: "factory reset"
-    restart:
-      name: "restart"
-    query_params:
-      name: query params
 
   - platform: template
     name: "buzzer script"
@@ -270,14 +232,6 @@ switch:
     output: buzzer_output
     id: buzzer_switch
 
-  - platform: ld2410
-    engineering_mode:
-      name: "engineering mode"
-    bluetooth:
-      name: "control bluetooth"
-
-ld2410:
-  uart_id: presence
 
 light:
   - platform: monochromatic
@@ -341,19 +295,24 @@ text_sensor:
 
   - platform: homeassistant
     id: weathertxt
-    entity_id: weather.u_doma
+    entity_id: weather.openweathermap
 
 sensor:
   - platform: homeassistant
+    id: aqi_index
+    entity_id: sensor.airquality_vacha_air_quality_index
+    name: "AQI Vacha"
+
+  - platform: homeassistant
     id: weather
-    entity_id: weather.u_doma
+    entity_id: weather.openweathermap
     attribute: temperature
     unit_of_measurement: "°C"
     device_class: "temperature"
     state_class: "measurement"
   - platform: homeassistant
     id: weatherwind
-    entity_id: weather.u_doma #
+    entity_id: weather.openweathermap
     attribute: wind_speed
     unit_of_measurement: "m/s"
     device_class: "wind_speed"
@@ -434,73 +393,55 @@ binary_sensor:
         - light.turn_off: red_led_light
         # - output.turn_off: buzzer_output
 
+
+# PIR sensor
+  - platform: gpio
+    name: "PIR RAW"
+    id: pir_raw
+    pin:
+      number: GPIO25
+      mode: INPUT_PULLDOWN
+    internal: true
+    on_press:
+      then:
+        - globals.set:
+            id: pir_detected
+            value: 'true'
+        - binary_sensor.template.publish:
+            id: pir_stable
+            state: ON
+        - delay: 10s
+        - binary_sensor.template.publish:
+            id: pir_stable
+            state: OFF
+    on_release:
+      then:
+        - globals.set:
+            id: pir_detected
+            value: 'false'
+
+  - platform: template
+    name: "PIR Motion Stable"
+    id: pir_stable
+    device_class: motion
+
+    
   - platform: homeassistant
     id: door_contact
     entity_id: binary_sensor.d1mini_sboard_door_contact_2
     name: "Door Contact"
     internal: False
 
-#GPIO26 за D0 и GPIO27 за D1
-# wiegand:
-#   d0: 33
-#   d1: 27
-#   # on_tag:
-#   #   then:
-#   #     - homeassistant.event:
-#   #         event: esphome.wiegand_card
-#   #         data:
-#   #           card_id: !lambda 'return x;'
-#   on_key:
-#       - lambda: ESP_LOGI("KEY", "received key %d", x);
-#   on_tag:
-#       - lambda: ESP_LOGI("TAG", "received tag %s", x.c_str());
-#   on_raw:
-#       - lambda: ESP_LOGI("RAW", "received raw %d bits, value %llx", bits, value);
-
 image:
-  # - file: "imgs/111.png"
-  #   id: close_door
-  #   type: RGB
-  #   resize: 170x320
-
-  # - file: "imgs/alert.png"
-  #   id: image_on
-  #   type: RGB
-
-  # - file: "imgs/alert.png"
-  #   id: image_off
-  #   type: RGB
-
-  # - file: "imgs/alert.png"
-  #   id: image_alert
-  #   type: RGB
-
-  # - file: "imgs/cloud.png"
-  #   id: image_cloud
-  #   type: RGB
-
-  # - file: "imgs/cloud-small.png"
-  #   id: image_cloud_small
-  #   type: RGB
-
-  # - file: "imgs/cloud-partly.png"
-  #   id: image_cloud_partly
-  #   type: RGB
-
-  # - file: "imgs/cloud-partly-small.png"
-  #   id: image_cloud_partly_small
-  #   type: RGB
-
-  # - file: "imgs/dot-green.png"
-  #   id: image_dot_green
-  #   resize: 14x14
-  #   type: RGB
-
-  # - file: "imgs/dot-orange.png"
-  #   id: image_dot_orange
-  #   resize: 14x14
-  #   type: RGB
-
+  # PIR status
+  - file: mdi:motion-sensor  
+    id: pir_idle
+    type: grayscale
+    resize: 24x24
+  - file: mdi:run 
+    id: pir_active
+    type: grayscale
+    resize: 24x24  
   #weather status icon
   - file: mdi:alert-outline
     id: alert
@@ -542,6 +483,7 @@ image:
     type: grayscale
     transparency: alpha_channel
     resize: 80x80
+    
   - file: mdi:weather-fog
     id: fog
     type: grayscale
@@ -572,6 +514,7 @@ image:
     type: grayscale
     transparency: alpha_channel
     resize: 20x20
+
   - file: mdi:door-closed-lock
     id: doorclosedlock
     type: grayscale
@@ -584,11 +527,6 @@ image:
     resize: 80x80
   - file: mdi:water-percent
     id: humidity
-    type: grayscale
-    transparency: alpha_channel
-    resize: 30x30
-  - file: mdi:thermometer
-    id: temperature
     type: grayscale
     transparency: alpha_channel
     resize: 30x30
@@ -607,7 +545,16 @@ image:
     type: grayscale
     transparency: alpha_channel
     resize: 80x80
+  - file: mdi:update
+    id: update
+    type: grayscale
+    transparency: alpha_channel
+    resize: 30x30    
 
+
+qr_code:
+  - id: qr_code_unlck
+    value: unclk.app
 display:
   - platform: ili9xxx
     model: ST7789V
@@ -622,52 +569,35 @@ display:
       mirror_y: true
     color_order: bgr
     invert_colors: true
-    data_rate: 80MHz
     cs_pin: GPIO5
     dc_pin: GPIO19
     reset_pin: GPIO21
+    data_rate: 40MHz
     id: displayST
     pages:
       - id: page0
         lambda: |-
-          // Горна лента със статус (само с 5 аргумента)
-          it.rectangle(0, 0, it.get_width(), 30, Color(5, 10, 20));
-
-          // Време (правилен формат на strftime)
-          it.strftime(160, 8, id(font_16), Color(240, 248, 255), TextAlign::CENTER, "%H:%M", id(ha_time).now());
-
-          // Дата (правилен формат на strftime)
-          it.strftime(160, 150, id(font1), Color(64, 156, 255), TextAlign::CENTER, "%d-%m-%Y", id(ha_time).now());
-
-          // Рамка за метеорологичната иконка (само с 5 аргумента)
-          it.rectangle(80, 40, 100, 100, Color(5, 10, 20));
-
-          // Избор на икона според състоянието на времето
-          if (id(weathertxt).state == "cloudy") {
-            it.image(100, 50, id(cloudy));
-          } else if (id(weathertxt).state == "rainy") {
-            it.image(100, 50, id(image_alert));
-          } else if (id(weathertxt).state == "snowy") {
-            it.image(100, 50, id(snow));
-          } else if (id(weathertxt).state == "partlycloudy") {
-            it.image(100, 50, id(partly_cloudy));
-          } else if (id(weathertxt).state == "clear-night") {
-            it.image(100, 50, id(clear_night), Color(120, 140, 255));
-          } else if (id(weathertxt).state == "sunny") {
-            it.image(100, 50, id(sunny), Color(255, 220, 0));
+          // Горна лента за време
+          it.rectangle(0, 0, 320, 25, Color(5, 10, 20));
+          it.strftime(160, 5, id(font_16), Color(240, 248, 255), TextAlign::CENTER, "%H:%M", id(ha_time).now());
+          
+          // ТЕМПЕРАТУРА - ЛЯВО
+          it.printf(80, 60, id(font_bold), Color(255, 180, 0), TextAlign::CENTER, "%.1f°", id(weather).state);
+          it.printf(80, 110, id(font_cyrillic_bold25), Color(200, 200, 200), TextAlign::CENTER, "TEMP");
+          
+          // ВЯТЪР - ДЯСНО
+          it.printf(240, 60, id(font_bold), Color(100, 200, 255), TextAlign::CENTER, "%.1f", id(weatherwind).state);
+          it.printf(240, 110, id(font_cyrillic_bold25), Color(200, 200, 200), TextAlign::CENTER, "m/s");
+          
+          // Дата долу
+          it.strftime(160, 150, id(font_cyrillic), Color(150, 150, 150), TextAlign::CENTER, "%d.%m.%Y", id(ha_time).now());
+          
+          // Wi-Fi статус - малък в ъгъла
+          if (id(wifi_connection) == true) {
+            it.image(5, 3, id(connected), Color(0, 220, 0));
           } else {
-            it.image(100, 50, id(weathercloudyalert));
+            it.image(5, 3, id(disconnected), Color(255, 50, 50));
           }
-
-          // Температура - правилен формат без rounded_rectangle
-          it.rectangle(190, 45, 120, 40, Color(5, 10, 20));
-          it.image(200, 50, id(temperature), Color(255, 180, 0));
-          it.printf(238, 52, id(font_cyrillic_bold25), Color(255, 180, 0), "%.1f°C", id(weather).state);
-
-          // Вятър - правилен формат без rounded_rectangle
-          it.rectangle(190, 95, 120, 40, Color(5, 10, 20));
-          it.image(200, 100, id(humidity), Color(100, 200, 255));
-          it.printf(238, 102, id(font_cyrillic_bold25), Color(100, 200, 255), "%.1f m/s", id(weatherwind).state);
 
           // Wi-Fi статус
           if (id(wifi_connection) == true) {
@@ -676,30 +606,38 @@ display:
             it.image(10, 5, id(disconnected), Color(255, 50, 50));
           }
 
+
       - id: page1
         lambda: |-
-          // Показване на предупредителен текст
-          it.printf(160, 20, id(font_cyrillic_bold), TextAlign::CENTER, "МОЛЯ");
-          it.printf(160, 50, id(font_cyrillic_bold), TextAlign::CENTER, "ЗАТВОРЕТЕ");
-          it.printf(160, 100, id(font_cyrillic_bold), TextAlign::CENTER, "ВРАТАТА");
-
-          // Добавяне на икона за внимание
-          // it.image(20, 60, id(image_alert), Color(255, 0, 0));
+          // Вертикално центриран текст
+          it.printf(160, 50, id(font_cyrillic_bold), TextAlign::CENTER, "МОЛЯ");
+          it.printf(160, 85, id(font_cyrillic_bold), TextAlign::CENTER, "ЗАТВОРЕТЕ");
+          it.printf(160, 120, id(font_cyrillic_bold), TextAlign::CENTER, "ВРАТАТА");
       - id: door_unlocked_page
         lambda: |-
           it.print(120, 50, id(font_cyrillic_bold), Color(255, 0, 0), "ВРАТАТА Е");
           it.print(120, 90, id(font_cyrillic_bold), Color(255, 0, 0), "ОТКЛЮЧЕНА");
           it.image(120, 150, id(image_alert), Color(255, 0, 0));
 
+          // ═══ PIR статус (под WiFi) ═══
+          if (id(pir_detected)) {
+            // Мигаща анимация при детекция
+            if (id(pir_blink_state)) {
+              it.image(10, 35, id(pir_active), Color(255, 100, 0));  // Оранжев
+            } else {
+              it.image(10, 35, id(pir_active), Color(255, 200, 0));  // Жълт
+            }
+          } else {
+            // Статична иконка без движение
+            it.image(10, 35, id(pir_idle), Color(100, 100, 100));  // Сив
+          }
+
       # Страница за температура
       - id: weather_temperature_page
         lambda: |-
 
           // Заглавие
-          it.printf(160, 20, id(font_cyrillic_bold25), Color(255, 255, 255), TextAlign::CENTER, "ТЕМПЕРАТУРА");
-
-          // Голяма икона за температура в центъра
-          it.image(120, 60, id(temperature), Color(255, 180, 0));
+          it.printf(160, 10, id(font_cyrillic_bold25), Color(255, 255, 255), TextAlign::CENTER, "ТЕМПЕРАТУРА");
 
           // Големи цифри за температурата
           it.printf(160, 120, id(font_bold), Color(255, 180, 0), TextAlign::CENTER, "%.1f°C", id(weather).state);
@@ -714,30 +652,54 @@ display:
             it.image(10, 5, id(disconnected), Color(255, 50, 50));
           }
 
+          // ═══ PIR статус (под WiFi) ═══
+          if (id(pir_detected)) {
+            // Мигаща анимация при детекция
+            if (id(pir_blink_state)) {
+              it.image(10, 35, id(pir_active), Color(255, 100, 0));  // Оранжев
+            } else {
+              it.image(10, 35, id(pir_active), Color(255, 200, 0));  // Жълт
+            }
+          } else {
+            // Статична иконка без движение
+            it.image(10, 35, id(pir_idle), Color(100, 100, 100));  // Сив
+          }
+
       # Страница за вятър
       - id: weather_wind_page
         lambda: |-
-
-          // Заглавие
-          it.printf(160, 20, id(font_cyrillic_bold25), Color(255, 255, 255), TextAlign::CENTER, "ВЯТЪР");
-
-          // Голяма икона за вятър в центъра
-          it.image(120, 60, id(windy), Color(100, 200, 255));
-
-          // Големи цифри за вятъра
-          it.printf(160, 120, id(font_bold), Color(100, 200, 255), TextAlign::CENTER, "%.1f", id(weatherwind).state);
-          it.printf(160, 150, id(font_cyrillic_bold25), Color(100, 200, 255), TextAlign::CENTER, "m/s");
-
+          // Заглавие гореcentrирано
+          it.printf(160, 10, id(font_cyrillic_bold25), Color(255, 255, 255), TextAlign::CENTER, "ВЯТЪР");
+          
+          // ГОЛЕМИ цифри за вятъра - ЛЯВО
+          it.printf(80, 70, id(font_bold), Color(100, 200, 255), TextAlign::CENTER, "%.1f", id(weatherwind).state);
+          it.printf(80, 110, id(font_cyrillic_bold25), Color(100, 200, 255), TextAlign::CENTER, "m/s");
+          
+          // Икона за вятър - ДЯСНО средата
+          it.image(200, 55, id(windy), Color(100, 200, 255));
+          
           // Дата и час в долната част
-          it.strftime(160, 160, id(font_cyrillic), Color(150, 150, 150), TextAlign::CENTER, "%H:%M | %d-%m", id(ha_time).now());
-
-          // Wi-Fi статус
+          it.strftime(160, 155, id(font_cyrillic), Color(150, 150, 150), TextAlign::CENTER, "%H:%M | %d.%m", id(ha_time).now());
+          
+          // Wi-Fi статус - горе ляво (малка икона)
           if (id(wifi_connection) == true) {
-            it.image(10, 5, id(connected), Color(0, 220, 0));
+            it.image(5, 3, id(connected), Color(0, 220, 0));
           } else {
-            it.image(10, 5, id(disconnected), Color(255, 50, 50));
+            it.image(5, 3, id(disconnected), Color(255, 50, 50));
           }
-
+          
+          // ═══ PIR статус (под WiFi) ═══
+          if (id(pir_detected)) {
+            // Мигаща анимация при детекция
+            if (id(pir_blink_state)) {
+              it.image(10, 35, id(pir_active), Color(255, 100, 0));  // Оранжев
+            } else {
+              it.image(10, 35, id(pir_active), Color(255, 200, 0));  // Жълт
+            }
+          } else {
+            // Статична иконка без движение
+            it.image(10, 35, id(pir_idle), Color(100, 100, 100));  // Сив
+          }
       # Страница за общо време
       - id: weather_general_page
         lambda: |-
@@ -792,6 +754,19 @@ display:
           } else {
             it.image(10, 5, id(disconnected), Color(255, 50, 50));
           }
+
+          // ═══ PIR статус (под WiFi) ═══
+          if (id(pir_detected)) {
+            // Мигаща анимация при детекция
+            if (id(pir_blink_state)) {
+              it.image(10, 35, id(pir_active), Color(255, 100, 0));  // Оранжев
+            } else {
+              it.image(10, 35, id(pir_active), Color(255, 200, 0));  // Жълт
+            }
+          } else {
+            // Статична иконка без движение
+            it.image(10, 35, id(pir_idle), Color(100, 100, 100));  // Сив
+          }
       - id: update_progress_page
         lambda: |-
 
@@ -818,6 +793,96 @@ display:
           } else {
             it.image(10, 5, id(disconnected), Color(255, 50, 50));
           }
+      - id: qr_code_page
+        lambda: |-
+          // Получаваме размера на QR кода
+          auto qr_size = id(qr_code_unlck).get_size();
+          
+          // Изчисляваме максимален мащаб за дисплея
+          int max_scale_width = (it.get_width() - 40) / qr_size;  // 40px отстъп от краищата
+          int max_scale_height = (it.get_height() - 80) / qr_size; // 80px за заглавие и долен отстъп
+          
+          // Избираме по-малкия мащаб, но поне 3
+          int scale = std::max(3, std::min(max_scale_width, max_scale_height));
+          
+          // Изчисляваме финалния размер
+          auto final_size = qr_size * scale;
+          
+          // Центрираме QR кода
+          auto x = (it.get_width() / 2) - (final_size / 2);
+          auto y = ((it.get_height() + 40) / 2) - (final_size / 2); // +40 за да отчетем заглавието
+          
+          // Рисуваме бял фон около QR кода за по-добър контраст
+          it.filled_rectangle(x - 10, y - 10, final_size + 20, final_size + 20, Color(255, 255, 255));
+          
+          // Рисуваме QR кода с черен цвят върху белия фон
+          it.qr_code(x, y, id(qr_code_unlck), Color(0, 0, 0), scale);
+          
+          // Допълнителна информация под QR кода (опционално)
+          it.printf(160, y + final_size + 15, id(font_bold), Color(255, 255, 255), TextAlign::CENTER, "unlck.app");  
+      - id: aqi_page
+        lambda: |-
+          // Определяне на цвят според AQI стойността
+          Color aqi_color;
+          std::string aqi_status;
+          
+          float aqi = id(aqi_index).state;
+          
+          if (aqi <= 50) {
+            aqi_color = Color(0, 200, 0);        // Зелено
+            aqi_status = "добре";
+          } else if (aqi <= 100) {
+            aqi_color = Color(255, 255, 0);      // Жълто
+            aqi_status = "умерен";
+          } else if (aqi <= 150) {
+            aqi_color = Color(255, 165, 0);      // Оранжево
+            aqi_status = "нездравословна";
+          } else if (aqi <= 200) {
+            aqi_color = Color(255, 0, 0);        // Червено
+            aqi_status = "нездравословен";
+          } else if (aqi <= 300) {
+            aqi_color = Color(128, 0, 128);      // Лилаво
+            aqi_status = "много нездравословно";
+          } else {
+            aqi_color = Color(128, 0, 0);        // Тъмночервено
+            aqi_status = "опасен";
+          }
+
+          // Заглавие
+          it.printf(160, 15, id(font_cyrillic_bold25), Color(255, 255, 255), TextAlign::CENTER, "КАЧЕСТВО ВЪЗДУХ");
+
+          // Голям AQI индекс в центъра
+          it.printf(160, 70, id(font_bold), aqi_color, TextAlign::CENTER, "%.0f", aqi);
+          
+          // Текстов статус под числото
+          it.printf(160, 115, id(font_cyrillic_bold25), aqi_color, TextAlign::CENTER, "%s", aqi_status.c_str());
+
+          // Дата и час в долната част
+          it.strftime(160, 150, id(font_cyrillic), Color(150, 150, 150), TextAlign::CENTER, "%H:%M | %d-%m", id(ha_time).now());
+
+          // Wi-Fi статус
+          if (id(wifi_connection) == true) {
+            it.image(10, 5, id(connected), Color(0, 220, 0));
+          } else {
+            it.image(10, 5, id(disconnected), Color(255, 50, 50));
+          }
+
+          // ═══ PIR статус (под WiFi) ═══
+          if (id(pir_detected)) {
+            // Мигаща анимация при детекция
+            if (id(pir_blink_state)) {
+              it.image(10, 35, id(pir_active), Color(255, 100, 0));  // Оранжев
+            } else {
+              it.image(10, 35, id(pir_active), Color(255, 200, 0));  // Жълт
+            }
+          } else {
+            // Статична иконка без движение
+            it.image(10, 35, id(pir_idle), Color(100, 100, 100));  // Сив
+          }
+      - id: clock_page
+        lambda: |-
+          // САМО ЧАС - максимално голям
+          it.strftime(160, 85, id(font_bold), Color(255, 255, 255), TextAlign::CENTER, "%H:%M", id(ha_time).now());
 
 globals: ##to set default reboot behavior
   - id: wifi_connection
@@ -841,6 +906,16 @@ globals: ##to set default reboot behavior
     type: bool
     restore_value: no
     initial_value: "false"
+  
+  - id: pir_detected  # Нов флаг за PIR
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  
+  - id: pir_blink_state  # За мигащ ефект
+    type: bool
+    restore_value: no
+    initial_value: 'false'
 
 interval:
   - interval: 10s
@@ -866,6 +941,15 @@ interval:
             }
           }
 
+  - interval: 500ms  # Мига на всеки 500ms
+    then:
+      - lambda: |-
+          if (id(pir_detected)) {
+            id(pir_blink_state) = !id(pir_blink_state);
+          } else {
+            id(pir_blink_state) = false;
+          }        
+
   # Автоматично ротиране на страниците за времето
   - interval: 8s
     then:
@@ -878,12 +962,12 @@ interval:
 
           // Ротиране само ако вратата е затворена (не е на page1)
           if (id(vrata_sboard).state == false) {
-            int next_page = (id(current_page_index) + 1) % 5; // 5 страници общо
+            int next_page = (id(current_page_index) + 1) % 6; // 6 страници общо
             id(current_page_index) = next_page;
             
             switch(next_page) {
               case 0:
-                id(displayST).show_page(id(page0));
+                id(displayST).show_page(id(clock_page));
                 break;
               case 1:
                 id(displayST).show_page(id(weather_temperature_page));
@@ -892,10 +976,13 @@ interval:
                 id(displayST).show_page(id(weather_wind_page));
                 break;
               case 3:
-                id(displayST).show_page(id(weather_general_page));
-                break;
-              case 4:
                 id(displayST).show_page(id(building_info_page));
                 break;
-            }
+              case 4:
+                id(displayST).show_page(id(aqi_page));
+                break;  
+            }      
+            // Запомни текущата страница
+            id(current_page_index) = next_page;
+
           }
